@@ -3,6 +3,7 @@
 import { NextResponse } from "next/server";
 
 import { getConfig } from "@/lib/config";
+import { isValidUrlForProxy } from "@/lib/utils";
 
 export const runtime = 'nodejs';
 
@@ -19,8 +20,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Missing source' }, { status: 400 });
   }
 
+  // 定义直链播放模式常量
+  const DIRECT_PLAY_SOURCE = 'directplay';
+
   // 直链播放模式：跳过源站配置检查，直接代理
-  if (source !== 'directplay') {
+  if (source !== DIRECT_PLAY_SOURCE) {
     // 检查该视频源是否启用了代理模式
     const config = await getConfig();
     const videoSource = config.SourceConfig?.find((s: any) => s.key === source);
@@ -39,6 +43,12 @@ export async function GET(request: Request) {
 
   try {
     const decodedUrl = decodeURIComponent(url);
+
+    // 安全校验：防 SSRF 拦截请求内网或非法 URL
+    if (source === DIRECT_PLAY_SOURCE && !isValidUrlForProxy(decodedUrl)) {
+      return NextResponse.json({ error: 'Proxy request to local or invalid network is forbidden' }, { status: 403 });
+    }
+
     response = await fetch(decodedUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',

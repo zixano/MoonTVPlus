@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getConfig } from '@/lib/config';
+import { isValidUrlForProxy } from '@/lib/utils';
 
 export const runtime = 'nodejs';
 
@@ -34,14 +35,38 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const DIRECT_PLAY_SOURCE = 'directplay';
+    // 安全校验：防 SSRF，只允许合法的公网 URL
+    if (source === DIRECT_PLAY_SOURCE && !isValidUrlForProxy(m3u8Url)) {
+      return NextResponse.json(
+        { error: 'Proxy request to local or invalid network is forbidden' },
+        { status: 403 }
+      );
+    }
+
     // 获取当前请求的 origin
     // 优先级：SITE_BASE 环境变量 > 从请求头构建
     let origin = process.env.SITE_BASE;
     if (!origin) {
       // 从请求头中获取 Host 和协议
-      const host = request.headers.get('host') || request.headers.get('x-forwarded-host');
+      let host = request.headers.get('host') || request.headers.get('x-forwarded-host');
+
+      // 安全校验：防 Host 头注入漏洞 (要求仅包含合法域名或 IP 格式字符)
+      if (host && !/^[a-zA-Z0-9.-]+(:\d+)?$/.test(host)) {
+        host = null;
+      }
+
+      // Fallback：如果以上 Header 无效或未提供，回退到 request.url 获取
+      if (!host) {
+        try {
+          host = new URL(request.url).host;
+        } catch {
+          return NextResponse.json({ error: 'Invalid Request Host' }, { status: 400 });
+        }
+      }
+
       const proto = request.headers.get('x-forwarded-proto') ||
-        (host?.includes('localhost') || host?.includes('127.0.0.1') ? 'http' : 'https');
+        (host.includes('localhost') || host.includes('127.0.0.1') ? 'http' : 'https');
       origin = `${proto}://${host}`;
     }
 
