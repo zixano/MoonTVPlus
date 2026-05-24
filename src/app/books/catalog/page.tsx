@@ -72,9 +72,12 @@ export default function BooksCatalogPage() {
   const [error, setError] = useState('');
   const [loadingMore, setLoadingMore] = useState(false);
   const loaderRef = useRef<HTMLDivElement | null>(null);
+  const sourceScrollerRef = useRef<HTMLDivElement | null>(null);
   const navScrollerRef = useRef<HTMLDivElement | null>(null);
   const loadedPageHrefsRef = useRef<Set<string>>(new Set());
   const failedPageHrefsRef = useRef<Set<string>>(new Set());
+  const sourceDragStateRef = useRef<{ pointerId: number; startX: number; startScrollLeft: number; moved: boolean; pointerType: string } | null>(null);
+  const suppressSourceClickRef = useRef(false);
   const navDragStateRef = useRef<{ pointerId: number; startX: number; startScrollLeft: number; moved: boolean; pointerType: string } | null>(null);
   const suppressNavClickRef = useRef(false);
 
@@ -157,6 +160,64 @@ export default function BooksCatalogPage() {
     return () => observer.disconnect();
   }, [data, nextHref, loadingMore, loadCatalog]);
 
+  const handleSourcePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    const node = sourceScrollerRef.current;
+    if (!node) return;
+    sourceDragStateRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startScrollLeft: node.scrollLeft,
+      moved: false,
+      pointerType: event.pointerType,
+    };
+    suppressSourceClickRef.current = false;
+    if (event.pointerType !== 'mouse') {
+      node.setPointerCapture?.(event.pointerId);
+    }
+  }, []);
+
+  const handleSourcePointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const node = sourceScrollerRef.current;
+    const dragState = sourceDragStateRef.current;
+    if (!node || !dragState || dragState.pointerId !== event.pointerId) return;
+    const deltaX = event.clientX - dragState.startX;
+    const moveThreshold = dragState.pointerType === 'mouse' ? 8 : 4;
+    if (Math.abs(deltaX) > moveThreshold) {
+      dragState.moved = true;
+      suppressSourceClickRef.current = true;
+    }
+    node.scrollLeft = dragState.startScrollLeft - deltaX;
+  }, []);
+
+  const handleSourcePointerUp = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const node = sourceScrollerRef.current;
+    const dragState = sourceDragStateRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+    if (dragState.moved) {
+      event.preventDefault();
+      window.setTimeout(() => {
+        suppressSourceClickRef.current = false;
+      }, 0);
+    }
+    sourceDragStateRef.current = null;
+    if (dragState.pointerType !== 'mouse') {
+      node?.releasePointerCapture?.(event.pointerId);
+    }
+  }, []);
+
+  const handleSourcePointerLeave = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'mouse') return;
+    handleSourcePointerUp(event);
+  }, [handleSourcePointerUp]);
+
+  const handleSourceWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
+    const node = sourceScrollerRef.current;
+    if (!node) return;
+    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    if (!delta) return;
+    node.scrollLeft += delta;
+  }, []);
 
   const handleNavPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
@@ -235,9 +296,30 @@ export default function BooksCatalogPage() {
 
   return (
     <div className='space-y-6'>
-      <div className='flex flex-wrap gap-2'>
+      <div
+        ref={sourceScrollerRef}
+        className='flex flex-nowrap gap-2 overflow-x-auto pb-1 cursor-grab select-none touch-pan-x active:cursor-grabbing'
+        onPointerDown={handleSourcePointerDown}
+        onPointerMove={handleSourcePointerMove}
+        onPointerUp={handleSourcePointerUp}
+        onPointerCancel={handleSourcePointerUp}
+        onPointerLeave={handleSourcePointerLeave}
+        onWheel={handleSourceWheel}
+      >
         {sources.map((source) => (
-          <Link key={source.id} href={`/books/catalog?sourceId=${encodeURIComponent(source.id)}`} className={`rounded-full px-4 py-2 text-sm ${source.id === sourceId ? 'bg-sky-600 text-white' : 'border border-gray-200 dark:border-gray-700'}`}>
+          <Link
+            key={source.id}
+            href={`/books/catalog?sourceId=${encodeURIComponent(source.id)}`}
+            draggable={false}
+            onDragStart={(event) => event.preventDefault()}
+            onClick={(event) => {
+              if (suppressSourceClickRef.current) {
+                event.preventDefault();
+                suppressSourceClickRef.current = false;
+              }
+            }}
+            className={`shrink-0 whitespace-nowrap rounded-full px-4 py-2 text-sm ${source.id === sourceId ? 'bg-sky-600 text-white' : 'border border-gray-200 dark:border-gray-700'}`}
+          >
             {source.name}
           </Link>
         ))}

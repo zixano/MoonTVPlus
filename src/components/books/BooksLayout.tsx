@@ -26,7 +26,7 @@ function getStaticMeta(pathname: string) {
   if (pathname === '/books/search') return { title: '电子书搜索', subtitle: '按书名与作者搜索' };
   if (pathname === '/books/detail') return { title: '电子书详情', subtitle: '查看书籍信息与可用格式' };
   if (pathname === '/books/read') return { title: '电子书阅读', subtitle: '分页阅读', backHref: '/books' };
-  return { title: '电子书馆', subtitle: 'OPDS 目录、搜索、阅读与书架' };
+  return { title: '电子书馆' };
 }
 
 export default function BooksLayout({ children }: { children: React.ReactNode }) {

@@ -807,11 +807,12 @@ export abstract class BaseRedisStorage implements IStorage {
     return Object.values(rows || {})
       .filter(Boolean)
       .map(value => JSON.parse(value as string) as MusicV2HistoryRecord)
-      // 按队列顺序返回；当前播放项由最大 lastPlayedAt 决定
+      // 按队列顺序返回；当前播放项由最大 lastPlayedAt 决定。
+      // createdAt 相同时使用歌曲标识做稳定兜底，避免最近播放时间把歌曲顶到队尾。
       .sort((a, b) => {
         const createdAtDiff = (a.createdAt || 0) - (b.createdAt || 0);
         if (createdAtDiff !== 0) return createdAtDiff;
-        return (a.lastPlayedAt || 0) - (b.lastPlayedAt || 0);
+        return `${a.source}:${a.songId}`.localeCompare(`${b.source}:${b.songId}`);
       });
   }
 
@@ -1346,7 +1347,8 @@ export abstract class BaseRedisStorage implements IStorage {
   async getUserListV2(
     offset = 0,
     limit = 20,
-    ownerUsername?: string
+    ownerUsername?: string,
+    search?: string
   ): Promise<{
     users: Array<{
       username: string;
@@ -1359,6 +1361,8 @@ export abstract class BaseRedisStorage implements IStorage {
     }>;
     total: number;
   }> {
+    const trimmedSearch = search?.trim() || '';
+
     // 获取总数
     let total = await this.withRetry(() => this.adapter.zCard(this.userListKey()));
 
@@ -1385,8 +1389,11 @@ export abstract class BaseRedisStorage implements IStorage {
         ownerExistenceCache.set(ownerUsername, ownerInDatabase);
       }
 
-      // 如果站长不在数据库中，总数+1（无论在哪一页都要加）
-      if (!ownerInDatabase) {
+      // 如果站长不在数据库中且匹配搜索条件，总数+1（无论在哪一页都要加）
+      if (
+        !ownerInDatabase &&
+        (!trimmedSearch || ownerUsername.includes(trimmedSearch))
+      ) {
         total += 1;
       }
     }
@@ -1395,7 +1402,11 @@ export abstract class BaseRedisStorage implements IStorage {
     let actualOffset = offset;
     let actualLimit = limit;
 
-    if (ownerUsername && !ownerInDatabase) {
+    if (
+      ownerUsername &&
+      !ownerInDatabase &&
+      (!trimmedSearch || ownerUsername.includes(trimmedSearch))
+    ) {
       if (offset === 0) {
         // 第一页：只获取 limit-1 个用户，为站长留出位置
         actualLimit = limit - 1;
@@ -1406,14 +1417,38 @@ export abstract class BaseRedisStorage implements IStorage {
     }
 
     // 获取用户列表（按注册时间升序）
-    const usernames = await this.withRetry(() =>
-      this.adapter.zRange(this.userListKey(), actualOffset, actualOffset + actualLimit - 1)
+    let usernames = await this.withRetry(() =>
+      trimmedSearch
+        ? this.adapter.zRange(this.userListKey(), 0, -1)
+        : this.adapter.zRange(
+            this.userListKey(),
+            actualOffset,
+            actualOffset + actualLimit - 1
+          )
     );
+    if (trimmedSearch) {
+      usernames = usernames.filter((username) =>
+        ensureString(username).includes(trimmedSearch)
+      );
+      total = usernames.length;
+      if (
+        ownerUsername &&
+        !ownerInDatabase &&
+        ownerUsername.includes(trimmedSearch)
+      ) {
+        total += 1;
+      }
+      usernames = usernames.slice(actualOffset, actualOffset + actualLimit);
+    }
 
     const users = [];
 
     // 如果有站长且在第一页，确保站长始终在第一位
-    if (ownerUsername && offset === 0) {
+    if (
+      ownerUsername &&
+      offset === 0 &&
+      (!trimmedSearch || ownerUsername.includes(trimmedSearch))
+    ) {
       // 即使站长不在数据库中，也要添加站长（站长使用环境变量认证）
       users.push({
         username: ownerUsername,

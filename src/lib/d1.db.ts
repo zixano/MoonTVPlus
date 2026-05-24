@@ -749,7 +749,7 @@ export class D1Storage implements IStorage {
     try {
       const results = await this.db
         // 按队列顺序返回；当前播放项由最大 last_played_at 决定
-        .prepare('SELECT * FROM music_v2_history WHERE username = ? ORDER BY created_at ASC, last_played_at ASC')
+        .prepare('SELECT * FROM music_v2_history WHERE username = ? ORDER BY created_at ASC, id ASC')
         .bind(userName)
         .all();
 
@@ -1306,7 +1306,8 @@ export class D1Storage implements IStorage {
   async getUserListV2(
     offset = 0,
     limit = 20,
-    ownerUsername?: string
+    ownerUsername?: string,
+    search?: string
   ): Promise<{
     users: Array<{
       username: string;
@@ -1320,10 +1321,16 @@ export class D1Storage implements IStorage {
     total: number;
   }> {
     try {
+      const trimmedSearch = search?.trim() || '';
+      const searchPattern = `%${trimmedSearch}%`;
+
       // 获取总数
-      const countResult = await this.db
-        .prepare('SELECT COUNT(*) as total FROM users')
-        .first();
+      const countQuery = trimmedSearch
+        ? this.db
+            .prepare('SELECT COUNT(*) as total FROM users WHERE username LIKE ?')
+            .bind(searchPattern)
+        : this.db.prepare('SELECT COUNT(*) as total FROM users');
+      const countResult = await countQuery.first();
       let total = (countResult?.total as number) || 0;
 
       // 检查站长是否在数据库中
@@ -1333,8 +1340,11 @@ export class D1Storage implements IStorage {
         ownerInfo = await this.getUserInfoV2(ownerUsername);
         ownerInDatabase = !!ownerInfo && ownerInfo.created_at !== 0;
 
-        // 如果站长不在数据库中，总数+1
-        if (!ownerInDatabase) {
+        // 如果站长不在数据库中且匹配搜索条件，总数+1
+        if (
+          !ownerInDatabase &&
+          (!trimmedSearch || ownerUsername.includes(trimmedSearch))
+        ) {
           total += 1;
         }
       }
@@ -1343,7 +1353,11 @@ export class D1Storage implements IStorage {
       let actualOffset = offset;
       let actualLimit = limit;
 
-      if (ownerUsername && !ownerInDatabase) {
+      if (
+        ownerUsername &&
+        !ownerInDatabase &&
+        (!trimmedSearch || ownerUsername.includes(trimmedSearch))
+      ) {
         if (offset === 0) {
           // 第一页：只获取 limit-1 个用户，为站长留出位置
           actualLimit = limit - 1;
@@ -1354,20 +1368,34 @@ export class D1Storage implements IStorage {
       }
 
       // 获取用户列表（按创建时间降序）
-      const result = await this.db
-        .prepare(`
-          SELECT username, role, banned, tags, oidc_sub, enabled_apis, created_at
-          FROM users
-          ORDER BY created_at DESC
-          LIMIT ? OFFSET ?
-        `)
-        .bind(actualLimit, actualOffset)
-        .all();
+      const listQuery = trimmedSearch
+        ? this.db
+            .prepare(`
+              SELECT username, role, banned, tags, oidc_sub, enabled_apis, created_at
+              FROM users
+              WHERE username LIKE ?
+              ORDER BY created_at DESC
+              LIMIT ? OFFSET ?
+            `)
+            .bind(searchPattern, actualLimit, actualOffset)
+        : this.db
+            .prepare(`
+              SELECT username, role, banned, tags, oidc_sub, enabled_apis, created_at
+              FROM users
+              ORDER BY created_at DESC
+              LIMIT ? OFFSET ?
+            `)
+            .bind(actualLimit, actualOffset);
+      const result = await listQuery.all();
 
       const users = [];
 
       // 如果有站长且在第一页，确保站长始终在第一位
-      if (ownerUsername && offset === 0) {
+      if (
+        ownerUsername &&
+        offset === 0 &&
+        (!trimmedSearch || ownerUsername.includes(trimmedSearch))
+      ) {
         users.push({
           username: ownerUsername,
           role: 'owner' as const,
