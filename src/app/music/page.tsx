@@ -15,7 +15,17 @@ const SPECTRUM_REFERENCE_VOLUME = 10;
 const SPECTRUM_MIN_VOLUME = 5;
 const SPECTRUM_MAX_REFERENCE_VOLUME = 15;
 
+function getApiErrorMessage(error: unknown, fallback: string): string {
+  if (typeof error === 'string') return error;
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string' && message.trim()) return message;
+  }
+  return fallback;
+}
+
 type MusicSource = 'wy' | 'tx' | 'kw' | 'kg' | 'mg';
+type MusicQuality = '128k' | '320k' | 'flac' | 'flac24bit';
 
 interface Song {
   id: string;
@@ -278,7 +288,7 @@ export default function MusicPage() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(100);
-  const [quality, setQuality] = useState<'128k' | '320k' | 'flac' | 'flac24bit'>('320k');
+  const [quality, setQuality] = useState<MusicQuality>('320k');
   const [playMode, setPlayMode] = useState<'loop' | 'single' | 'random'>('loop');
   const [currentSongIndex, setCurrentSongIndex] = useState(-1);
   const [showPlayer, setShowPlayer] = useState(false);
@@ -362,6 +372,9 @@ export default function MusicPage() {
   const currentTimeRef = useRef(0);
   const volumeRef = useRef(volume);
   const spectrumSeedRef = useRef(Math.random() * Math.PI * 2);
+  const qualitySwitchRequestRef = useRef(0);
+  const currentSongRef = useRef<Song | null>(null);
+  const currentSourceRef = useRef(currentSource);
 
   const mapSong = (song: any): Song => ({
     id: song.songId || song.id,
@@ -399,7 +412,7 @@ export default function MusicPage() {
     { key: 'mg', label: '咪咕' },
   ];
 
-  const buildStreamUrl = (song: Song, source: MusicSource, songQuality: '128k' | '320k' | 'flac' | 'flac24bit') => {
+  const buildStreamUrl = (song: Song, source: MusicSource, songQuality: MusicQuality) => {
     const params = new URLSearchParams({
       songId: song.id,
       source,
@@ -422,7 +435,7 @@ export default function MusicPage() {
   const fetchPlayData = async (
     song: Song,
     source: MusicSource,
-    songQuality: '128k' | '320k' | 'flac' | 'flac24bit',
+    songQuality: MusicQuality,
     includeUrl = false
   ) => {
     const response = await fetch('/api/music/v2/play', {
@@ -461,7 +474,8 @@ export default function MusicPage() {
     song: Song,
     playTime: number,
     totalDuration: number,
-    lastPlayedAt = Date.now()
+    lastPlayedAt = Date.now(),
+    recordQuality: MusicQuality = quality
   ) => {
     await fetch('/api/music/v2/history', {
       method: 'POST',
@@ -480,7 +494,7 @@ export default function MusicPage() {
         },
         playProgressSec: playTime,
         lastPlayedAt,
-        lastQuality: quality,
+        lastQuality: recordQuality,
         createdAt: record.timestamp,
       }),
     });
@@ -491,9 +505,10 @@ export default function MusicPage() {
     song: Song,
     playTime = 0,
     totalDuration = 0,
-    lastPlayedAt?: number
+    lastPlayedAt?: number,
+    recordQuality?: MusicQuality
   ) => {
-    saveHistoryRecord(record, song, playTime, totalDuration, lastPlayedAt).catch(err => {
+    saveHistoryRecord(record, song, playTime, totalDuration, lastPlayedAt, recordQuality).catch(err => {
       console.error('保存播放记录到数据库失败:', err);
     });
   };
@@ -719,6 +734,14 @@ export default function MusicPage() {
       savePlayState();
     }
   }, [currentSong, currentSongIndex, songs, currentPlaylistTitle, currentSource, currentView, quality, playMode, volume, currentSongUrl, lyrics, playRecords, playlistIndex]);
+
+  useEffect(() => {
+    currentSongRef.current = currentSong;
+  }, [currentSong]);
+
+  useEffect(() => {
+    currentSourceRef.current = currentSource;
+  }, [currentSource]);
 
   // 监听 playRecords 变化，更新 playlistIndex
   useEffect(() => {
@@ -1150,7 +1173,7 @@ export default function MusicPage() {
           } else {
             const data = await response.json();
             setToast({
-              message: data.error || '删除失败',
+              message: getApiErrorMessage(data.error, '删除失败'),
               type: 'error',
               onClose: () => setToast(null),
             });
@@ -1203,7 +1226,7 @@ export default function MusicPage() {
           } else {
             const data = await response.json();
             setToast({
-              message: data.error || '移除失败',
+              message: getApiErrorMessage(data.error, '移除失败'),
               type: 'error',
               onClose: () => setToast(null),
             });
@@ -1469,11 +1492,154 @@ export default function MusicPage() {
   };
 
   // 切换音质
+  const handleQualityChange = async (nextQuality: MusicQuality) => {
+    setShowQualityMenu(false);
+
+    if (nextQuality === quality) return;
+
+    const targetSong = currentSong;
+    const audio = audioRef.current;
+    const targetPlatform = targetSong?.platform || currentSource;
+
+    currentSongRef.current = targetSong;
+    currentSourceRef.current = currentSource;
+
+    setQuality(nextQuality);
+
+    // 没有正在播放的歌曲时，仅保存偏好；下次播放会使用新音质。
+    if (!targetSong || !audio) return;
+
+    const requestId = ++qualitySwitchRequestRef.current;
+    const targetSongKey = `${targetPlatform}:${targetSong.id}`;
+    const resumeTime = Number.isFinite(audio.currentTime) ? audio.currentTime : currentTimeRef.current;
+    const shouldResume = isPlaying || (!audio.paused && !audio.ended);
+
+    const isStillTargetSong = () => {
+      const activeSong = currentSongRef.current;
+      if (!activeSong) return false;
+
+      const activePlatform = activeSong.platform || currentSourceRef.current;
+      return (
+        requestId === qualitySwitchRequestRef.current &&
+        `${activePlatform}:${activeSong.id}` === targetSongKey
+      );
+    };
+
+    beginResolving();
+    try {
+      const proxyEnabled = getMusicProxyEnabled();
+      setMusicProxyEnabled(proxyEnabled);
+
+      let nextSongUrl = '';
+
+      if (proxyEnabled) {
+        nextSongUrl = buildStreamUrl(targetSong, targetPlatform, nextQuality);
+      } else {
+        const data = await fetchPlayData(targetSong, targetPlatform, nextQuality, true);
+        if (!isStillTargetSong()) return;
+
+        if (!data.success || !data.data?.play?.directUrl) {
+          throw new Error(data.error?.message || '获取播放地址失败');
+        }
+
+        nextSongUrl = data.data.play.directUrl;
+
+        if (data.data.song?.cover) {
+          setCurrentSong({
+            ...targetSong,
+            pic: data.data.song.cover,
+            platform: targetPlatform,
+          });
+        }
+
+        if (data.data.lyric?.lyric) {
+          const parsedLyrics = parseLyric(data.data.lyric.lyric, data.data.lyric.tlyric);
+          setLyrics(parsedLyrics);
+        }
+      }
+
+      if (!isStillTargetSong()) return;
+
+      const activeRecord =
+        playRecords[playlistIndex]?.platform === targetPlatform && playRecords[playlistIndex]?.id === targetSong.id
+          ? playRecords[playlistIndex]
+          : playRecords.find((record) => record.platform === targetPlatform && record.id === targetSong.id);
+      const totalDuration =
+        Number.isFinite(audio.duration) && audio.duration > 0
+          ? audio.duration
+          : duration || targetSong.duration || 0;
+
+      if (activeRecord) {
+        saveHistoryRecordSafely(
+          activeRecord,
+          { ...targetSong, platform: targetPlatform },
+          resumeTime,
+          totalDuration,
+          Date.now(),
+          nextQuality
+        );
+      }
+
+      setCurrentSongUrl(nextSongUrl);
+      setCurrentTime(resumeTime);
+      songStartTimeRef.current = Date.now();
+      restoredTimeRef.current = resumeTime;
+
+      const resumeAfterMetadata = () => {
+        if (!isStillTargetSong()) return;
+
+        if (resumeTime > 0) {
+          try {
+            const maxSeekTime =
+              Number.isFinite(audio.duration) && audio.duration > 0
+                ? Math.max(0, audio.duration - 0.25)
+                : resumeTime;
+            const seekTime = Math.min(resumeTime, maxSeekTime);
+
+            if (Math.abs(audio.currentTime - seekTime) > 1) {
+              audio.currentTime = seekTime;
+            }
+          } catch (error) {
+            console.warn('切换音质后恢复播放进度失败:', error);
+          }
+        }
+
+        setCurrentTime(audio.currentTime || resumeTime);
+
+        if (shouldResume) {
+          audio.play()
+            .then(() => setIsPlaying(true))
+            .catch((error) => {
+              console.error('切换音质后播放失败:', error);
+              setIsPlaying(false);
+            });
+        } else {
+          setIsPlaying(false);
+        }
+      };
+
+      audio.pause();
+      audio.src = nextSongUrl;
+      audio.addEventListener('loadedmetadata', resumeAfterMetadata, { once: true });
+      audio.load();
+      setIsPlaying(shouldResume);
+    } catch (error) {
+      console.error('切换音质失败:', error);
+      setToast({
+        message: (error as Error).message || '切换音质失败',
+        type: 'error',
+        onClose: () => setToast(null),
+      });
+    } finally {
+      endResolving();
+    }
+  };
+
   const cycleQuality = () => {
-    const qualities: Array<'128k' | '320k' | 'flac' | 'flac24bit'> = ['128k', '320k', 'flac', 'flac24bit'];
+    const qualities: MusicQuality[] = ['128k', '320k', 'flac', 'flac24bit'];
     const currentIndex = qualities.indexOf(quality);
     const nextIndex = (currentIndex + 1) % qualities.length;
-    setQuality(qualities[nextIndex]);
+    void handleQualityChange(qualities[nextIndex]);
   };
 
   // 清空播放记录
@@ -1693,7 +1859,7 @@ export default function MusicPage() {
       audio.removeEventListener('durationchange', handleDurationChange);
       audio.removeEventListener('ended', handleEnded);
     };
-  }, [playMode, songs, currentSongIndex, lyrics, currentSong, playlistIndex, playRecords]);
+  }, [playMode, songs, currentSongIndex, lyrics, currentSong, playlistIndex, playRecords, quality]);
 
   // 初始加载
   useEffect(() => {
@@ -3187,8 +3353,7 @@ export default function MusicPage() {
             <div className="p-4 space-y-2">
               <button
                 onClick={() => {
-                  setQuality('128k');
-                  setShowQualityMenu(false);
+                  void handleQualityChange('128k');
                 }}
                 className={`w-full p-4 rounded-lg flex items-center justify-between transition-colors ${
                   quality === '128k'
@@ -3212,8 +3377,7 @@ export default function MusicPage() {
 
               <button
                 onClick={() => {
-                  setQuality('320k');
-                  setShowQualityMenu(false);
+                  void handleQualityChange('320k');
                 }}
                 className={`w-full p-4 rounded-lg flex items-center justify-between transition-colors ${
                   quality === '320k'
@@ -3237,8 +3401,7 @@ export default function MusicPage() {
 
               <button
                 onClick={() => {
-                  setQuality('flac');
-                  setShowQualityMenu(false);
+                  void handleQualityChange('flac');
                 }}
                 className={`w-full p-4 rounded-lg flex items-center justify-between transition-colors ${
                   quality === 'flac'
@@ -3262,8 +3425,7 @@ export default function MusicPage() {
 
               <button
                 onClick={() => {
-                  setQuality('flac24bit');
-                  setShowQualityMenu(false);
+                  void handleQualityChange('flac24bit');
                 }}
                 className={`w-full p-4 rounded-lg flex items-center justify-between transition-colors ${
                   quality === 'flac24bit'

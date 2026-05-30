@@ -11,6 +11,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "221.1.0",
+    date: "2026-05-25",
+    added: [
+      // 无新增内容
+    ],
+    changed: [
+    "legado新增正文专用解析函数",
+    "优化books/catalog页面"
+    ],
+    fixed: [
+    "修复音质切换没有立即生效",
+    "修复音乐界面添加重复歌单报错"
+    ]
+  },
+  {
     version: "221.0.0",
     date: "2026-05-24",
     added: [

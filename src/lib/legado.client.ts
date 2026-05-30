@@ -1010,6 +1010,23 @@ function contentFromRule(raw: string, rule?: string, baseUrl?: string): string {
   return readValue($, $.root(), selectorRule, baseUrl);
 }
 
+function chapterContentFromRule(raw: string, rule?: string, baseUrl?: string): string {
+  const json = parseJsonMaybe(raw);
+  if (json && (ruleIsJson(rule) || isJsRuleString(rule))) {
+    return readJsonRule(json, rule, undefined, baseUrl);
+  }
+
+  const rawRule = rule || '';
+  const blockJs = rawRule.trim().match(/^<js>([\s\S]*?)<\/js>$/i);
+  const jsIndex = rawRule.indexOf('@js:');
+  if (blockJs || jsIndex >= 0) return contentFromRule(raw, rule, baseUrl);
+
+  const $ = cheerio.load(raw);
+  const values = readValues($, $.root(), rawRule, baseUrl);
+  if (values.length > 0) return values.join('\n');
+  return readValue($, $.root(), rawRule, baseUrl);
+}
+
 function cleanContent(value: string) {
   const decoded = he.decode(value || '').trim();
   if (/<img\b/i.test(decoded)) return decoded;
@@ -1744,7 +1761,7 @@ export class LegadoClient {
     for (let page = 0; page < 8 && pageUrl && !visited.has(pageUrl); page += 1) {
       visited.add(pageUrl);
       const html = await fetchText(source, pageUrl);
-      const part = contentFromRule(html, rule.ruleContent.content, pageUrl);
+      const part = chapterContentFromRule(html, rule.ruleContent.content, pageUrl);
       if (part) parts.push(part);
       const next = rule.ruleContent.nextContentUrl ? contentFromRule(html, rule.ruleContent.nextContentUrl, pageUrl) : '';
       const normalizedNext = next ? normalizeUrl(pageUrl, next) : '';
