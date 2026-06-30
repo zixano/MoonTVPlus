@@ -11,6 +11,42 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "223.2.0",
+    date: "2026-06-25",
+    added: [
+    "EdgeOne部署支持",
+    "Web TV增加局域网遥控",
+    "动漫磁力搜索增加Nyaa源",
+    "下载增加IndexedDB模式",
+    "增加下载内容导出功能",
+    "增加自定义X-Emby-Authorization"
+    ],
+    changed: [
+    "UC和夸克网盘增加自动续期机制",
+    "优化预加载策略",
+    "扫码登录成功返回上一页",
+    "用户登出立即失效所有token"
+    ],
+    fixed: [
+    "修复AI总开关关闭后AI评论仍然显示",
+    "修复搜索页带类型参数时仍后台搜索影视类型"
+    ]
+  },
+  {
+    version: "223.1.0",
+    date: "2026-06-15",
+    added: [
+    " web tv模式增加上下键可改为菜单模式",
+    "支持高级字幕（ass，ssa）渲染"
+    ],
+    changed: [
+    "web tv优化选集面板聚焦"
+    ],
+    fixed: [
+      // 无修复内容
+    ]
+  },
+  {
     version: "223.0.0",
     date: "2026-06-11",
     added: [
@@ -36,7 +72,7 @@ export const changelog: ChangelogEntry[] = [
     "web tv模式左右焦点锁定，默认聚焦首页导航",
     "提升播放页带背景图下选集面板的对比度",
     "首页轮播图标题自适应大小",
-    "artplayer到5.4.0",
+    "升级artplayer到5.4.0",
     "cloudflare环境下排除无用nodejs包"
     ],
     fixed: [

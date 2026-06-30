@@ -35,6 +35,9 @@ yarn-error.log*
 
 # cloudflare
 .open-next/
+
+# edgeone
+.edgeone/
 .wrangler/
 wrangler.toml.bak
 
@@ -71,4 +74,3 @@ scripts/test
 
 .agents/
 skills-lock.json
-pnpm-lock.yaml
