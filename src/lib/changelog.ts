@@ -11,6 +11,78 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "224.2.0",
+    date: "2026-08-03",
+    added: [
+    "音乐增加均衡器配置",
+    "新增快捷快进功能",
+    "搜索新增高级面板",
+    "搜索新增只搜私人影库"
+    ],
+    changed: [
+    "anime4k超分使用自管理的 WebGPU 渲染器兼容firefox",
+    "优化openlist集数识别规则",
+    "source移除更改为仅对ios Safari生效",
+    "影视搜索、聚合开关视图切换移动到高级面板"
+    ],
+    fixed: [
+    "修复移动端点击videocard失效问题"
+    ]
+  },
+  {
+    version: "224.1.1",
+    date: "2026-07-31",
+    added: [
+      // 无新增内容
+    ],
+    changed: [
+      // 无变更内容
+    ],
+    fixed: [
+    "修复tv模式登录失效跳转/login页面而非/tv/login页面"
+    ]
+  },
+  {
+    version: "224.1.0",
+    date: "2026-07-31",
+    added: [
+    "生态应用增加moontvplus浏览器插件",
+    "网盘源新增集数长按或右键显示原名",
+    "增强追番订阅：关键词表达式、字幕组快捷、右键添加与缺集补搜",
+    "新增磁链测活功能"
+    ],
+    changed: [
+    "API Base URL保存与请求时去除末尾斜杠",
+    "VideoCard操作菜单限制高度并可滑动"
+    ],
+    fixed: [
+    "修复VideoCard来源数量浮层左上角被裁切，并阻止长按同时弹出操作菜单",
+    "修复OpenList多根路径扫描进度未汇总"
+    ]
+  },
+  {
+    version: "224.0.0",
+    date: "2026-07-21",
+    added: [
+    "新增Turso(libSQL)数据库支持",
+    "新增流量分析功能",
+    "动漫订阅增加排除关键词",
+    "增加客户端去广告配置",
+    "openlist增加路径元信息配置分类和自动刷新链接功能",
+    "增加动漫数据源桜色镜像站"
+    ],
+    changed: [
+    "tgbot站点名改为自定义站点名",
+    "webtv局域网遥控二维码可聚焦",
+    "设备识别移除tgbot",
+    "IOS PWA沉浸式状态栏支持",
+    "优化动漫数据源图片降级策略"
+    ],
+    fixed: [
+      // 无修复内容
+    ]
+  },
+  {
     version: "223.3.0",
     date: "2026-07-06",
     added: [

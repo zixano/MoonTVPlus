@@ -5,11 +5,15 @@ import type { NextRequest } from 'next/server';
 import nodeFetch from 'node-fetch';
 
 import type { AdminConfig } from './admin.types';
-import { generateAuthCookieValue } from './auth-cookie';
+import {
+  generateAuthCookieValue,
+  getDeviceInfoFromUserAgent,
+} from './auth-cookie';
 import { getConfig } from './config';
 import { db, getStorage } from './db';
 import { lockManager } from './lock';
 import type { IStorage, Notification } from './types';
+import { normalizeApiBaseUrl } from './url';
 import { getNotificationClickUrl } from './web-push';
 
 export interface TelegramConfig {
@@ -64,6 +68,8 @@ interface TelegramLoginSession {
   username?: string;
   telegramUserId?: string;
   authToken?: string;
+  /** 发起登录的浏览器 User-Agent，用于设备管理展示 */
+  userAgent?: string;
 }
 
 interface TelegramBindSession {
@@ -318,12 +324,15 @@ export async function registerTelegramUser(input: {
   }
 }
 
-export async function createTelegramLoginSession(): Promise<TelegramLoginSession> {
+export async function createTelegramLoginSession(
+  userAgent?: string
+): Promise<TelegramLoginSession> {
   const session: TelegramLoginSession = {
     token: randomToken(),
     status: 'pending',
     createdAt: now(),
     expiresAt: now() + LOGIN_TTL_MS,
+    userAgent: userAgent || undefined,
   };
   await writeJson(loginSessionKey(session.token), session);
   return session;
@@ -381,11 +390,12 @@ export async function confirmTelegramLogin(token: string, telegramUserId: string
   if (!binding) throw new Error('当前 Telegram 账号尚未绑定站内账号');
 
   const role = await getUserRole(binding.username);
+  const deviceInfo = getDeviceInfoFromUserAgent(session.userAgent || '');
   const authToken = await generateAuthCookieValue({
     username: binding.username,
     role,
     includePassword: false,
-    deviceInfo: 'Telegram Bot Login',
+    deviceInfo,
   });
 
   session.status = 'confirmed';
@@ -417,7 +427,7 @@ function isCloudflareEnvironment(): boolean {
 }
 
 function normalizeTelegramApiBaseUrl(input?: string | null): string {
-  const base = (input || 'https://api.telegram.org').trim().replace(/\/+$/, '');
+  const base = normalizeApiBaseUrl(input || 'https://api.telegram.org');
   return base || 'https://api.telegram.org';
 }
 
